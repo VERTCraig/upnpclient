@@ -231,7 +231,11 @@ class Service(CallActionMixin):
           auth=self.device.http_auth,
           headers=self.device.http_headers
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            print("Bad SCPDURL: %s" % (e)) 
+            return
         self.scpd_xml = etree.fromstring(resp.content)
         self._find = partial(self.scpd_xml.find, namespaces=self.scpd_xml.nsmap)
         self._findtext = partial(self.scpd_xml.findtext, namespaces=self.scpd_xml.nsmap)
@@ -297,8 +301,17 @@ class Service(CallActionMixin):
                     'argumentList/argument', namespaces=action_node.nsmap):
                 findtext = partial(arg_node.findtext, namespaces=arg_node.nsmap)
                 arg_name = findtext('name')
-                arg_statevar = self.statevars[findtext('relatedStateVariable')]
-                if findtext('direction').lower() == 'in':
+                try:
+                    arg_statevar = self.statevars[findtext('relatedStateVariable')]
+                except KeyError:
+                    self.statevars[findtext('relatedStateVariable')] = dict()
+                    arg_statevar = self.statevars[findtext('relatedStateVariable')]
+                dir_in = findtext('direction')
+                if dir_in:
+                    dir_in = dir_in.lower()
+                else:
+                    dir_in = "in"
+                if dir_in == 'in':
                     argsdef_in.append((arg_name, arg_statevar))
                 else:
                     argsdef_out.append((arg_name, arg_statevar))
@@ -457,7 +470,10 @@ class Action(object):
         """
         Validate an incoming (unicode) string argument according the UPnP spec. Raises UPNPError.
         """
-        datatype = argdef['datatype']
+        try:
+            datatype = argdef['datatype']
+        except KeyError:
+            return True,set()
         reasons = set()
         ranges = {
             'ui1': (int, 0, 255),
